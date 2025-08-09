@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Iulian AI – Blindat</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; background: #f5f5f5; }
+    #chat { max-width: 700px; margin: auto; background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    .bubble { margin: 0.5rem 0; padding: 0.75rem; border-radius: 10px; }
+    .user { background: #d1e7dd; text-align: right; }
+    .bot { background: #f8d7da; text-align: left; white-space: pre-wrap; }
+    .btn { padding: 1rem 2rem; border: none; border-radius: 10px; cursor: pointer; font-weight: 700; }
+    .btn-primary { background:#007bff; color:white; }
+    .btn-resume { background:#ff0000; color:white; }
+  </style>
+</head>
+<body>
+  <div style="text-align:center; margin-top:2rem;">
+    <h2>💬 Iulian AI – întreabă în orice limbă</h2>
+    <button id="startBtn" class="btn btn-primary">💳 Pornește sesiunea – 10 întrebări</button>
+  </div>
+
+  <div id="confirmSection" style="text-align:center; margin-top:1rem; display:none;">
+    <button id="resumeBtn" class="btn btn-resume">♻️ Reia întrebările</button>
+  </div>
+
+  <div id="chat" style="display:none">
+    <div class="bubble bot">Salut! Întreabă-mă orice despre cărțile lui Iulian Triboi – în orice limbă vrei.</div>
+    <div id="chat-messages"></div>
+    <div id="inputSection" style="max-width:700px; margin:auto; display:flex; gap:10px; margin-top:1rem;">
+      <input id="prompt" type="text" placeholder="Scrie întrebarea ta..." style="flex:1; padding:1rem;" required />
+      <button id="submitButton" class="btn">Trimite</button>
+    </div>
+    <p id="limitMessage" style="color:red; text-align:center; margin-top:1rem; display:none;"></p>
+  </div>
+
+  <script>
+    const chat = document.getElementById('chat-messages');
+    const promptInput = document.getElementById('prompt');
+    const submitButton = document.getElementById('submitButton');
+    const limitMessage = document.getElementById('limitMessage');
+    const confirmSection = document.getElementById('confirmSection');
+    const chatBox = document.getElementById('chat');
+    const startBtn = document.getElementById('startBtn');
+    const resumeBtn = document.getElementById('resumeBtn');
+
+    let sessionId = null;
+
+    async function startSession(){
+      const r = await fetch("/api/session/start", { method:"POST" });
+      const d = await r.json();
+      if(!r.ok){ alert(d.error || "Eroare la pornirea sesiunii."); return; }
+      sessionId = d.sessionId;
+      confirmSection.style.display = 'none';
+      chatBox.style.display = 'block';
+      limitMessage.style.display = 'none';
+      promptInput.disabled = false;
+    }
+
+    startBtn.onclick = ()=>{
+      startSession();
+    };
+
+    resumeBtn.onclick = async ()=>{
+      if(!sessionId){ limitMessage.style.display='block'; limitMessage.innerText = "Nu ai sesiune activă."; return; }
+      const r = await fetch("/api/session/resume", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ sessionId })
+      });
+      const d = await r.json();
+      if(r.ok && d.ok){
+        chatBox.style.display='block';
+        limitMessage.style.display='none';
+        promptInput.disabled = false;
+      } else {
+        limitMessage.style.display='block';
+        limitMessage.innerText = d.error || "Nu pot relua sesiunea.";
+      }
+    };
+
+    submitButton.onclick = async ()=>{
+      const prompt = promptInput.value.trim();
+      if(!prompt) return;
+      chat.innerHTML += `<div class="bubble user">${prompt}</div>`;
+      promptInput.value = "";
+      promptInput.disabled = true;
+      try{
+        const r = await fetch("/api/chat", {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ sessionId, prompt })
+        });
+        const d = await r.json();
+        if(!r.ok){
+          if((d.error||"").includes("inactivitate")) {
+            confirmSection.style.display = 'block';
+          }
+          chat.innerHTML += `<div class="bubble bot">❌ ${d.error || "Eroare."}</div>`;
+          promptInput.disabled = false;
+          return;
+        }
+        sessionId = d.sessionId; // asigură-te că păstrăm id-ul
+        chat.innerHTML += `<div class="bubble bot">${d.reply}</div>`;
+        if(d.remainingQuestions <= 0 || d.remainingTokens <= 0){
+          promptInput.disabled = true;
+          limitMessage.style.display='block';
+          limitMessage.innerText = "Limită atinsă.";
+        } else {
+          promptInput.disabled = false;
+        }
+      }catch(e){
+        chat.innerHTML += `<div class="bubble bot">❌ ${e.message}</div>`;
+        promptInput.disabled = false;
+      }
+    };
+
+    // Afișează butonul roșu când sesiunea e închisă prin inactivitate
+    // (serverul va răspunde cu mesaj specific; aici doar îl arătăm când e cazul)
+    // ConfirmSection rămâne ascuns până primim eroare de inactivitate
+  </script>
+</body>
+</html>
